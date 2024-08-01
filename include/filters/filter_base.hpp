@@ -103,6 +103,10 @@ public:
     logging_interface_ = node_logger;
 
     configured_ = configure();
+
+    post_set_parameters_callback_handle_= params_interface_->add_post_set_parameters_callback(
+      std::bind(&FilterBase::internalPostSetParamsCallback, this, std::placeholders::_1));
+
     return configured_;
   }
 
@@ -145,12 +149,36 @@ private:
     return true;
   }
 
+  void internalPreSetParamsCallback(std::vector<rclcpp::Parameter> &params) const
+  {
+    return preSetParamsCallback(params);
+  }
+
+  rcl_interfaces::msg::SetParametersResult internalOnSetParamsCallback(
+      const std::vector<rclcpp::Parameter> &params) const
+  {
+    return onSetParamsCallback(params);
+  }
+
+  void internalPostSetParamsCallback(const std::vector<rclcpp::Parameter> &params)
+  {
+    return postSetParamsCallback(params);
+  }
+
 protected:
   /**
    * \brief Pure virtual function for the sub class to configure the filter
    * This function must be implemented in the derived class.
    */
   virtual bool configure() = 0;
+
+  const rclcpp::ParameterValue &
+  declareParam(
+      const std::string &name,
+      const rclcpp::ParameterValue &default_value,
+      const rcl_interfaces::msg::ParameterDescriptor &parameter_descriptor =
+          rcl_interfaces::msg::ParameterDescriptor(),
+      bool ignore_override = false);
 
   /**
    * \brief Get a filter parameter as a string
@@ -251,6 +279,19 @@ protected:
       name, rcl_interfaces::msg::ParameterType::PARAMETER_STRING_ARRAY, {}, value);
   }
 
+
+  virtual void preSetParamsCallback(std::vector<rclcpp::Parameter> &params) const {};
+
+  virtual rcl_interfaces::msg::SetParametersResult onSetParamsCallback(
+    __attribute__((unused)) const std::vector<rclcpp::Parameter> &params) const
+  {
+    rcl_interfaces::msg::SetParametersResult result;
+    result.successful = true;
+    return result;
+  };
+
+  virtual void postSetParamsCallback(const std::vector<rclcpp::Parameter> &params) {};
+
   /// The name of the filter
   std::string filter_name_;
   /// Whether the filter has been configured.
@@ -260,6 +301,11 @@ protected:
 
   rclcpp::node_interfaces::NodeParametersInterface::SharedPtr params_interface_;
   rclcpp::node_interfaces::NodeLoggingInterface::SharedPtr logging_interface_;
+
+  // Handles for the paramerter callbacks that we register with rclcpp.
+  rclcpp::node_interfaces::PreSetParametersCallbackHandle::SharedPtr pre_set_parameters_callback_handle_;
+  rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr on_set_parameters_callback_handle_;
+  rclcpp::node_interfaces::PostSetParametersCallbackHandle::SharedPtr post_set_parameters_callback_handle_;
 };
 
 
