@@ -33,6 +33,7 @@
 #include <limits>
 #include <string>
 #include <typeinfo>
+#include <vector>
 
 #include "rcl_interfaces/msg/parameter_descriptor.hpp"
 #include "rcl_interfaces/msg/parameter_type.hpp"
@@ -153,26 +154,24 @@ private:
   }
 
   /**
-   * Because ROS2 does not have an unsigned int parameter type, we specialize
-   * declareParam here and convert unsigned int to int, then back again.
+   * Because ROS2 does not have an unsigned int parameter type, we overload for unsigned int
+   * here and convert unsigned int to int, then back again.
    *
    */
   bool declareParamImpl(
-      const std::string &name,
-      const unsigned int &default_value,
-      bool read_only,
-      unsigned int &value_out)
+    const std::string & name,
+    const unsigned int & default_value,
+    bool read_only,
+    unsigned int & value_out)
   {
     // Make sure that we can safely cast the default value from unsigned int to int.
-    if (default_value > std::numeric_limits<int>::max())
-    {
+    if (default_value > std::numeric_limits<int>::max()) {
       return false;
     }
     int signed_default_value = static_cast<int>(default_value);
 
     int signed_value_out;
-    if(not declareParam<int>(name, signed_default_value, read_only, signed_value_out))
-    {
+    if(!declareParam<int>(name, signed_default_value, read_only, signed_value_out)) {
       return false;
     }
 
@@ -180,7 +179,7 @@ private:
       return false;
     }
     value_out = signed_value_out;
-    
+
     return true;
   }
 
@@ -238,9 +237,9 @@ protected:
     const PT & default_value,
     bool read_only,
     PT & value_out)
-    {
-      return declareParamImpl(name, default_value, read_only, value_out);
-    }
+  {
+    return declareParamImpl(name, default_value, read_only, value_out);
+  }
   /**
    * \brief Get a filter parameter as a string
    * \param name The name of the parameter
