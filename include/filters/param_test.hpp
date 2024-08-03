@@ -75,14 +75,19 @@ ParamTest<T>::~ParamTest()
 template<typename T>
 bool ParamTest<T>::configure()
 {
-  return true;
+  bool make_param_writeable;
+  if(!this->declareParam("make_param_writeable", false, false, make_param_writeable)) {
+    return false;
+  }
+
+  T foo;
+  return this->declareParam("key", T(), make_param_writeable, foo);
 }
 
 template<typename T>
 bool ParamTest<T>::update(const T & /*data_in*/, T & data_out)
 {
-  this->getParam("key", data_out);
-  return true;
+  return this->getParam("key", data_out);
 }
 
 }  // namespace filters

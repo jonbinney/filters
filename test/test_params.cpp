@@ -149,3 +149,19 @@ TEST_F(ParametersTest, StringVector)
     EXPECT_STREQ("four", it->c_str());
   }
 }
+
+TEST_F(ParametersTest, WriteableInt)
+{
+  auto node = make_node_with_one_param(static_cast<int>(4));
+  std::shared_ptr<filters::FilterBase<int>> filter = std::make_shared<filters::ParamTest<int>>();
+  ASSERT_TRUE(
+    filter->configure(
+      "dummy.prefix", "TestWriteableInt",
+      node->get_node_logging_interface(), node->get_node_parameters_interface()));
+  int out;
+  filter->update(0, out);
+  EXPECT_EQ(4, out);
+  ASSERT_TRUE(node->set_parameter(rclcpp::Parameter("dummy.prefix.key", 7)).successful);
+  ASSERT_TRUE(filter->update(0, out));
+  EXPECT_EQ(7, out);
+}

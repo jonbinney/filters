@@ -30,9 +30,9 @@
 #ifndef FILTERS__FILTER_BASE_HPP_
 #define FILTERS__FILTER_BASE_HPP_
 
+#include <limits>
 #include <string>
 #include <typeinfo>
-#include <vector>
 
 #include "rcl_interfaces/msg/parameter_descriptor.hpp"
 #include "rcl_interfaces/msg/parameter_type.hpp"
@@ -104,7 +104,7 @@ public:
 
     configured_ = configure();
 
-    post_set_parameters_callback_handle_= params_interface_->add_post_set_parameters_callback(
+    post_set_parameters_callback_handle_ = params_interface_->add_post_set_parameters_callback(
       std::bind(&FilterBase::internalPostSetParamsCallback, this, std::placeholders::_1));
 
     return configured_;
@@ -124,6 +124,66 @@ public:
   inline const std::string & getName() {return filter_name_;}
 
 private:
+/**
+ */
+  template<typename PT>
+  bool declareParamImpl(
+    const std::string & name,
+    const PT & default_value,
+    bool read_only,
+    PT & value_out)
+  {
+    std::string param_name = param_prefix_ + name;
+
+    rcl_interfaces::msg::ParameterDescriptor param_descriptor;
+    param_descriptor.read_only = read_only;
+    rclcpp::ParameterValue new_param_value;
+    try {
+      new_param_value = params_interface_->declare_parameter(
+          param_name, rclcpp::ParameterValue(default_value), param_descriptor);
+      value_out = new_param_value.get<PT>();
+    } catch (rclcpp::ParameterTypeException & e) {
+      RCLCPP_ERROR(
+          logging_interface_->get_logger(),
+          "Failed to create parameter %s", name.c_str());
+      return false;
+    }
+
+    return true;
+  }
+
+  /**
+   * Because ROS2 does not have an unsigned int parameter type, we specialize
+   * declareParam here and convert unsigned int to int, then back again.
+   *
+   */
+  bool declareParamImpl(
+      const std::string &name,
+      const unsigned int &default_value,
+      bool read_only,
+      unsigned int &value_out)
+  {
+    // Make sure that we can safely cast the default value from unsigned int to int.
+    if (default_value > std::numeric_limits<int>::max())
+    {
+      return false;
+    }
+    int signed_default_value = static_cast<int>(default_value);
+
+    int signed_value_out;
+    if(not declareParam<int>(name, signed_default_value, read_only, signed_value_out))
+    {
+      return false;
+    }
+
+    if (signed_value_out < 0) {
+      return false;
+    }
+    value_out = signed_value_out;
+    
+    return true;
+  }
+
   template<typename PT>
   bool getParamImpl(const std::string & name, const uint8_t type, PT default_value, PT & value_out)
   {
@@ -149,18 +209,18 @@ private:
     return true;
   }
 
-  void internalPreSetParamsCallback(std::vector<rclcpp::Parameter> &params) const
+  void internalPreSetParamsCallback(std::vector<rclcpp::Parameter> & params) const
   {
     return preSetParamsCallback(params);
   }
 
   rcl_interfaces::msg::SetParametersResult internalOnSetParamsCallback(
-      const std::vector<rclcpp::Parameter> &params) const
+    const std::vector<rclcpp::Parameter> & params) const
   {
     return onSetParamsCallback(params);
   }
 
-  void internalPostSetParamsCallback(const std::vector<rclcpp::Parameter> &params)
+  void internalPostSetParamsCallback(const std::vector<rclcpp::Parameter> & params)
   {
     return postSetParamsCallback(params);
   }
@@ -172,14 +232,15 @@ protected:
    */
   virtual bool configure() = 0;
 
-  const rclcpp::ParameterValue &
-  declareParam(
-      const std::string &name,
-      const rclcpp::ParameterValue &default_value,
-      const rcl_interfaces::msg::ParameterDescriptor &parameter_descriptor =
-          rcl_interfaces::msg::ParameterDescriptor(),
-      bool ignore_override = false);
-
+  template<typename PT>
+  bool declareParam(
+    const std::string & name,
+    const PT & default_value,
+    bool read_only,
+    PT & value_out)
+    {
+      return declareParamImpl(name, default_value, read_only, value_out);
+    }
   /**
    * \brief Get a filter parameter as a string
    * \param name The name of the parameter
@@ -280,17 +341,19 @@ protected:
   }
 
 
-  virtual void preSetParamsCallback(std::vector<rclcpp::Parameter> &params) const {};
+  virtual void preSetParamsCallback(
+    __attribute__((unused)) std::vector<rclcpp::Parameter> & params) const {}
 
   virtual rcl_interfaces::msg::SetParametersResult onSetParamsCallback(
-    __attribute__((unused)) const std::vector<rclcpp::Parameter> &params) const
+    __attribute__((unused)) const std::vector<rclcpp::Parameter> & params) const
   {
     rcl_interfaces::msg::SetParametersResult result;
     result.successful = true;
     return result;
-  };
+  }
 
-  virtual void postSetParamsCallback(const std::vector<rclcpp::Parameter> &params) {};
+  virtual void postSetParamsCallback(
+    __attribute__((unused)) const std::vector<rclcpp::Parameter> & params) {}
 
   /// The name of the filter
   std::string filter_name_;
@@ -303,9 +366,12 @@ protected:
   rclcpp::node_interfaces::NodeLoggingInterface::SharedPtr logging_interface_;
 
   // Handles for the paramerter callbacks that we register with rclcpp.
-  rclcpp::node_interfaces::PreSetParametersCallbackHandle::SharedPtr pre_set_parameters_callback_handle_;
-  rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr on_set_parameters_callback_handle_;
-  rclcpp::node_interfaces::PostSetParametersCallbackHandle::SharedPtr post_set_parameters_callback_handle_;
+  rclcpp::node_interfaces::PreSetParametersCallbackHandle::SharedPtr
+    pre_set_parameters_callback_handle_;
+  rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr
+    on_set_parameters_callback_handle_;
+  rclcpp::node_interfaces::PostSetParametersCallbackHandle::SharedPtr
+    post_set_parameters_callback_handle_;
 };
 
 
