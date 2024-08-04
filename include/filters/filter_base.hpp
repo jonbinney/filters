@@ -125,64 +125,6 @@ public:
   inline const std::string & getName() {return filter_name_;}
 
 private:
-/**
- */
-  template<typename PT>
-  bool declareParamImpl(
-    const std::string & name,
-    const PT & default_value,
-    bool read_only,
-    PT & value_out)
-  {
-    std::string param_name = param_prefix_ + name;
-
-    rcl_interfaces::msg::ParameterDescriptor param_descriptor;
-    param_descriptor.read_only = read_only;
-    rclcpp::ParameterValue new_param_value;
-    try {
-      new_param_value = params_interface_->declare_parameter(
-          param_name, rclcpp::ParameterValue(default_value), param_descriptor);
-      value_out = new_param_value.get<PT>();
-    } catch (rclcpp::ParameterTypeException & e) {
-      RCLCPP_ERROR(
-          logging_interface_->get_logger(),
-          "Failed to create parameter %s", name.c_str());
-      return false;
-    }
-
-    return true;
-  }
-
-  /**
-   * Because ROS2 does not have an unsigned int parameter type, we overload for unsigned int
-   * here and convert unsigned int to int, then back again.
-   *
-   */
-  bool declareParamImpl(
-    const std::string & name,
-    const unsigned int & default_value,
-    bool read_only,
-    unsigned int & value_out)
-  {
-    // Make sure that we can safely cast the default value from unsigned int to int.
-    if (default_value > std::numeric_limits<int>::max()) {
-      return false;
-    }
-    int signed_default_value = static_cast<int>(default_value);
-
-    int signed_value_out;
-    if(!declareParam<int>(name, signed_default_value, read_only, signed_value_out)) {
-      return false;
-    }
-
-    if (signed_value_out < 0) {
-      return false;
-    }
-    value_out = signed_value_out;
-
-    return true;
-  }
-
   template<typename PT>
   bool getParamImpl(const std::string & name, const uint8_t type, PT default_value, PT & value_out)
   {
@@ -231,6 +173,8 @@ protected:
    */
   virtual bool configure() = 0;
 
+/**
+ */
   template<typename PT>
   bool declareParam(
     const std::string & name,
@@ -238,8 +182,45 @@ protected:
     bool read_only,
     PT & value_out)
   {
-    return declareParamImpl(name, default_value, read_only, value_out);
+    std::string param_name = param_prefix_ + name;
+
+    rclcpp::ParameterValue default_param_value;
+    if constexpr (std::is_same<PT, unsigned int>::value) {
+      if (default_value > std::numeric_limits<int>::max()) {
+        return false;
+      }
+      default_param_value = rclcpp::ParameterValue(static_cast<int>(default_value));
+    } else {
+      default_param_value = rclcpp::ParameterValue(default_value);
+    }
+
+    rcl_interfaces::msg::ParameterDescriptor param_descriptor;
+    param_descriptor.read_only = read_only;
+    rclcpp::ParameterValue new_param_value;
+    try {
+      new_param_value = params_interface_->declare_parameter(
+        param_name, default_param_value, param_descriptor);
+      value_out = new_param_value.get<PT>();
+    } catch (rclcpp::ParameterTypeException & e) {
+      RCLCPP_ERROR(
+          logging_interface_->get_logger(),
+          "Failed to create parameter %s", name.c_str());
+      return false;
+    }
+
+    if constexpr (std::is_same<PT, unsigned int>::value) {
+      int signed_value_out = new_param_value.get<PT>();
+      if(signed_value_out < 0) {
+        return false;
+      }
+      value_out = static_cast<unsigned int>(signed_value_out);
+    } else {
+      value_out = new_param_value.get<PT>();
+    }
+
+    return true;
   }
+
   /**
    * \brief Get a filter parameter as a string
    * \param name The name of the parameter
