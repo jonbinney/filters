@@ -53,7 +53,7 @@ protected:
   make_node_with_one_param(const T & value)
   {
     rclcpp::NodeOptions options;
-    options.parameter_overrides().emplace_back("dummy.prefix.key", value);
+    options.parameter_overrides().emplace_back("dummy.prefix.output_value", value);
     return std::make_shared<rclcpp::Node>("param_test", options);
   }
 };
@@ -98,6 +98,20 @@ TEST_F(ParametersTest, UInt)
       "dummy.prefix", "TestUInt",
       node->get_node_logging_interface(), node->get_node_parameters_interface()));
   unsigned int out;
+  filter->update(out, out);
+  EXPECT_EQ(4u, out);
+}
+
+TEST_F(ParametersTest, SizeT)
+{
+  auto node = make_node_with_one_param(static_cast<int>(4));  // int because no size_t type
+  std::shared_ptr<filters::FilterBase<size_t>> filter =
+    std::make_shared<filters::ParamTest<size_t>>();
+  ASSERT_TRUE(
+    filter->configure(
+      "dummy.prefix", "TestSizeT",
+      node->get_node_logging_interface(), node->get_node_parameters_interface()));
+  size_t out;
   filter->update(out, out);
   EXPECT_EQ(4u, out);
 }
@@ -161,7 +175,7 @@ TEST_F(ParametersTest, WriteableInt)
   int out;
   filter->update(0, out);
   EXPECT_EQ(4, out);
-  ASSERT_TRUE(node->set_parameter(rclcpp::Parameter("dummy.prefix.key", 7)).successful);
+  ASSERT_TRUE(node->set_parameter(rclcpp::Parameter("dummy.prefix.output_value", 7)).successful);
   ASSERT_TRUE(filter->update(0, out));
   EXPECT_EQ(7, out);
 }

@@ -60,6 +60,13 @@ public:
    * \param data_out T array with length width
    */
   bool update(const T & data_in, T & data_out) override;
+
+  void preSetParamsCallback(std::vector<rclcpp::Parameter> & params) const override;
+
+  rcl_interfaces::msg::SetParametersResult onSetParamsCallback(
+    const std::vector<rclcpp::Parameter> & params) const override;
+
+  void postSetParamsCallback(const std::vector<rclcpp::Parameter> & params) override;
 };
 
 template<typename T>
@@ -75,19 +82,56 @@ ParamTest<T>::~ParamTest()
 template<typename T>
 bool ParamTest<T>::configure()
 {
-  bool make_param_writeable;
-  if(!this->declareParam("make_param_writeable", false, false, make_param_writeable)) {
+  // We'll use this parameter as the output value, which we can check
+  // for in testing.
+  if (!this->declareParam("output_value", T(), false)) {
     return false;
   }
 
-  T foo;
-  return this->declareParam("key", T(), make_param_writeable, foo);
+  // Declare some more parameters which we use to test writing parameters
+  // and parameter setting callbacks.
+  // "a" is a writeable int.
+  if (!this->declareParam("a", 7, true)) {
+    return false;
+  }
+
+  // "b" must be greater than "a".
+  if (!this->declareParam("b", 8, true)) {
+    return false;
+  }
+
+  // "c" is automatically set to a string representation of "a"
+  if (!this->declareParam("c", 8, true)) {
+    return false;
+  }
+
+  return true;
 }
 
 template<typename T>
 bool ParamTest<T>::update(const T & /*data_in*/, T & data_out)
 {
-  return this->getParam("key", data_out);
+  return this->getParam("output_value", data_out);
+}
+
+template<typename T>
+void ParamTest<T>::preSetParamsCallback(std::vector<rclcpp::Parameter> & params) const
+{
+}
+
+template<typename T>
+rcl_interfaces::msg::SetParametersResult ParamTest<T>::onSetParamsCallback(
+  const std::vector<rclcpp::Parameter> & params) const
+{
+  rcl_interfaces::msg::SetParametersResult result;
+  result.set__successful(true);
+  return result;
+}
+
+template<typename T>
+void ParamTest<T>::postSetParamsCallback(const std::vector<rclcpp::Parameter> & params)
+{
+
 }
 
 }  // namespace filters

@@ -105,8 +105,12 @@ public:
 
     configured_ = configure();
 
+    pre_set_parameters_callback_handle_ = params_interface_->add_pre_set_parameters_callback(
+        std::bind(&FilterBase::internalPreSetParamsCallback, this, std::placeholders::_1));
+    on_set_parameters_callback_handle_ = params_interface_->add_on_set_parameters_callback(
+        std::bind(&FilterBase::internalOnSetParamsCallback, this, std::placeholders::_1));
     post_set_parameters_callback_handle_ = params_interface_->add_post_set_parameters_callback(
-      std::bind(&FilterBase::internalPostSetParamsCallback, this, std::placeholders::_1));
+        std::bind(&FilterBase::internalPostSetParamsCallback, this, std::placeholders::_1));
 
     return configured_;
   }
@@ -125,31 +129,6 @@ public:
   inline const std::string & getName() {return filter_name_;}
 
 private:
-  template<typename PT>
-  bool getParamImpl(const std::string & name, const uint8_t type, PT default_value, PT & value_out)
-  {
-    std::string param_name = param_prefix_ + name;
-
-    if (!params_interface_->has_parameter(param_name)) {
-      // Declare parameter
-      rclcpp::ParameterValue default_parameter_value(default_value);
-      rcl_interfaces::msg::ParameterDescriptor desc;
-      desc.name = name;
-      desc.type = type;
-      desc.read_only = true;
-
-      if (name.empty()) {
-        throw std::runtime_error("Parameter must have a name");
-      }
-
-      params_interface_->declare_parameter(param_name, default_parameter_value, desc);
-    }
-
-    value_out = params_interface_->get_parameter(param_name).get_parameter_value().get<PT>();
-    // TODO(sloretz) seems to be no way to tell if parameter was initialized or not
-    return true;
-  }
-
   void internalPreSetParamsCallback(std::vector<rclcpp::Parameter> & params) const
   {
     return preSetParamsCallback(params);
@@ -179,13 +158,14 @@ protected:
   bool declareParam(
     const std::string & name,
     const PT & default_value,
-    bool read_only,
-    PT & value_out)
+    bool read_only)
   {
     std::string param_name = param_prefix_ + name;
 
+    // Special case: ROS2 doesn't have unsigned int or size_t parameter types, but we support them here
+    // for backwards compatibility by converting to and from a signed integer.
     rclcpp::ParameterValue default_param_value;
-    if constexpr (std::is_same<PT, unsigned int>::value) {
+    if constexpr (std::is_same<PT, unsigned int>::value or std::is_same<PT, size_t>::value) {
       if (default_value > std::numeric_limits<int>::max()) {
         return false;
       }
@@ -198,128 +178,53 @@ protected:
     param_descriptor.read_only = read_only;
     rclcpp::ParameterValue new_param_value;
     try {
-      new_param_value = params_interface_->declare_parameter(
-        param_name, default_param_value, param_descriptor);
-      value_out = new_param_value.get<PT>();
+      params_interface_->declare_parameter(
+          param_name, default_param_value, param_descriptor);
     } catch (rclcpp::ParameterTypeException & e) {
       RCLCPP_ERROR(
           logging_interface_->get_logger(),
-          "Failed to create parameter %s", name.c_str());
+          "Failed to declare parameter %s", name.c_str());
       return false;
     }
 
-    if constexpr (std::is_same<PT, unsigned int>::value) {
-      int signed_value_out = new_param_value.get<PT>();
+    return true;
+  }
+
+  template<typename PT>
+  bool getParam(const std::string & name, PT & value_out)
+  {
+    std::string param_name = param_prefix_ + name;
+
+    // For backwards compatibility. At some point auto-creation of the parameter
+    // here should be deprecated.
+    if (!params_interface_->has_parameter(param_name)) {
+      if (!declareParam(param_name, PT(), false)) {
+        return false;
+      }
+    }
+
+    // Special case: ROS2 doesn't have unsigned int or size_t parameter types, but we support them here
+    // for backwards compatibility by converting to and from a signed integer.
+    if constexpr (std::is_same<PT, unsigned int>::value or std::is_same<PT, size_t>::value) {
+      int signed_value_out;
+      try {
+        signed_value_out = params_interface_->get_parameter(param_name).get_parameter_value().get<int>();
+      } catch (rclcpp::exceptions::InvalidParameterTypeException e) {
+        RCLCPP_ERROR(
+            logging_interface_->get_logger(),
+            "Failed to get parameter %s", name.c_str());
+        return false;
+      }
       if(signed_value_out < 0) {
         return false;
       }
-      value_out = static_cast<unsigned int>(signed_value_out);
+      value_out = static_cast<PT>(signed_value_out);
     } else {
-      value_out = new_param_value.get<PT>();
+      value_out = params_interface_->get_parameter(param_name).get_parameter_value().get<PT>();
     }
 
     return true;
   }
-
-  /**
-   * \brief Get a filter parameter as a string
-   * \param name The name of the parameter
-   * \param value The string to set with the value
-   * \return Whether or not the parameter of name/type was set */
-  bool getParam(const std::string & name, std::string & value)
-  {
-    return getParamImpl(
-      name, rcl_interfaces::msg::ParameterType::PARAMETER_STRING, std::string(), value);
-  }
-
-  /**
-   * \brief Get a filter parameter as a boolean
-   * \param name The name of the parameter
-   * \param value The boolean to set with the value
-   * \return Whether or not the parameter of name/type was set */
-  bool getParam(const std::string & name, bool & value)
-  {
-    return getParamImpl(name, rcl_interfaces::msg::ParameterType::PARAMETER_BOOL, false, value);
-  }
-
-  /**
-   * \brief Get a filter parameter as a double
-   * \param name The name of the parameter
-   * \param value The double to set with the value
-   * \return Whether or not the parameter of name/type was set */
-  bool getParam(const std::string & name, double & value)
-  {
-    return getParamImpl(name, rcl_interfaces::msg::ParameterType::PARAMETER_DOUBLE, 0.0, value);
-  }
-
-  /**
-   * \brief Get a filter parameter as a int
-   * \param name The name of the parameter
-   * \param value The int to set with the value
-   * \return Whether or not the parameter of name/type was set */
-  bool getParam(const std::string & name, int & value)
-  {
-    return getParamImpl(name, rcl_interfaces::msg::ParameterType::PARAMETER_INTEGER, 0, value);
-  }
-
-  /**
-   * \brief Get a filter parameter as an unsigned int
-   * \param name The name of the parameter
-   * \param value The int to set with the value
-   * \return Whether or not the parameter of name/type was set */
-  bool getParam(const std::string & name, unsigned int & value)
-  {
-    int signed_value;
-    if (!getParam(name, signed_value)) {
-      return false;
-    }
-    if (signed_value < 0) {
-      return false;
-    }
-    value = signed_value;
-    return true;
-  }
-
-  /**
-   * \brief Get a filter parameter as a size_t
-   * \param name The name of the parameter
-   * \param value The int to set with the value
-   * \return Whether or not the parameter of name/type was set */
-  bool getParam(const std::string & name, size_t & value)
-  {
-    int signed_value;
-    if (!getParam(name, signed_value)) {
-      return false;
-    }
-    if (signed_value < 0) {
-      return false;
-    }
-    value = signed_value;
-    return true;
-  }
-
-  /**
-   * \brief Get a filter parameter as a std::vector<double>
-   * \param name The name of the parameter
-   * \param value The std::vector<double> to set with the value
-   * \return Whether or not the parameter of name/type was set */
-  bool getParam(const std::string & name, std::vector<double> & value)
-  {
-    return getParamImpl(
-      name, rcl_interfaces::msg::ParameterType::PARAMETER_DOUBLE_ARRAY, {}, value);
-  }
-
-  /**
-   * \brief Get a filter parameter as a std::vector<string>
-   * \param name The name of the parameter
-   * \param value The std::vector<sgring> to set with the value
-   * \return Whether or not the parameter of name/type was set */
-  bool getParam(const std::string & name, std::vector<std::string> & value)
-  {
-    return getParamImpl(
-      name, rcl_interfaces::msg::ParameterType::PARAMETER_STRING_ARRAY, {}, value);
-  }
-
 
   virtual void preSetParamsCallback(
     __attribute__((unused)) std::vector<rclcpp::Parameter> & params) const {}
