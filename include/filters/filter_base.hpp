@@ -131,6 +131,16 @@ public:
 private:
   void internalPreSetParamsCallback(std::vector<rclcpp::Parameter> & params) const
   {
+    std::set<std::string> updated_params;
+    std::map<std::string, rclcpp::ParameterValue> & params_after_update;
+    if(!params_interface_->get_parameters_by_prefix(param_prefix_, params_after_update)) {
+      RCLCPP_ERROR(logging_interface_->get_logger(), "Failed to get parameters for prefix %s", name.c_str());
+      return;
+    }
+    for (const auto & param : params) {
+      updated_params.insert(param.name);
+      params_after_update[param.name] = param.get_parameter_value();
+    }
     return preSetParamsCallback(params);
   }
 
@@ -227,7 +237,8 @@ protected:
   }
 
   virtual void preSetParamsCallback(
-    __attribute__((unused)) std::vector<rclcpp::Parameter> & params) const {}
+    __attribute__((unused)) const std::set<std::string> updated_params,
+    __attribute__((unused)) std::map<std::string, rclcpp::Parameter> & params_after_update) const {}
 
   virtual rcl_interfaces::msg::SetParametersResult onSetParamsCallback(
     __attribute__((unused)) const std::vector<rclcpp::Parameter> & params) const
@@ -250,7 +261,7 @@ protected:
   rclcpp::node_interfaces::NodeParametersInterface::SharedPtr params_interface_;
   rclcpp::node_interfaces::NodeLoggingInterface::SharedPtr logging_interface_;
 
-  // Handles for the paramerter callbacks that we register with rclcpp.
+  // Handles for the paramereter callbacks that we register with rclcpp.
   rclcpp::node_interfaces::PreSetParametersCallbackHandle::SharedPtr
     pre_set_parameters_callback_handle_;
   rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr
